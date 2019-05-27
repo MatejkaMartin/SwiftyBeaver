@@ -23,6 +23,9 @@ open class SwiftyBeaver {
         case warning = 3
         case error = 4
     }
+    
+    /// Whether add to the message sensitive information or not
+    public static var logsSensitive: Bool = false
 
     // a set of active destinations
     public private(set) static var destinations = Set<BaseDestination>()
@@ -84,69 +87,69 @@ open class SwiftyBeaver {
     // MARK: Levels
 
     /// log something generally unimportant (lowest priority)
-    open class func verbose(_ message: @autoclosure () -> Any, _
+    open class func verbose(_ message: @autoclosure () -> Any, sensitive: String? = nil, _
         file: String = #file, _ function: String = #function, line: Int = #line, context: Any? = nil) {
         #if swift(>=5)
-        custom(level: .verbose, message: message(), file: file, function: function, line: line, context: context)
+        custom(level: .verbose, message: message(), sensitive: sensitive, file: file, function: function, line: line, context: context)
         #else
-        custom(level: .verbose, message: message, file: file, function: function, line: line, context: context)
+        custom(level: .verbose, message: message, sensitive: sensitive, file: file, function: function, line: line, context: context)
         #endif
     }
 
     /// log something which help during debugging (low priority)
-    open class func debug(_ message: @autoclosure () -> Any, _
+    open class func debug(_ message: @autoclosure () -> Any, sensitive: String? = nil, _
         file: String = #file, _ function: String = #function, line: Int = #line, context: Any? = nil) {
         #if swift(>=5)
-        custom(level: .debug, message: message(), file: file, function: function, line: line, context: context)
+        custom(level: .debug, message: message(), sensitive: sensitive, file: file, function: function, line: line, context: context)
         #else
-        custom(level: .debug, message: message, file: file, function: function, line: line, context: context)
+        custom(level: .debug, message: message, sensitive: sensitive, file: file, function: function, line: line, context: context)
         #endif
     }
 
     /// log something which you are really interested but which is not an issue or error (normal priority)
-    open class func info(_ message: @autoclosure () -> Any, _
+    open class func info(_ message: @autoclosure () -> Any, sensitive: String? = nil, _
         file: String = #file, _ function: String = #function, line: Int = #line, context: Any? = nil) {
         #if swift(>=5)
-        custom(level: .info, message: message(), file: file, function: function, line: line, context: context)
+        custom(level: .info, message: message(), sensitive: sensitive, file: file, function: function, line: line, context: context)
         #else
-        custom(level: .info, message: message, file: file, function: function, line: line, context: context)
+        custom(level: .info, message: message, sensitive: sensitive, file: file, function: function, line: line, context: context)
         #endif
     }
 
     /// log something which may cause big trouble soon (high priority)
-    open class func warning(_ message: @autoclosure () -> Any, _
+    open class func warning(_ message: @autoclosure () -> Any, sensitive: String? = nil, _
         file: String = #file, _ function: String = #function, line: Int = #line, context: Any? = nil) {
         #if swift(>=5)
-        custom(level: .warning, message: message(), file: file, function: function, line: line, context: context)
+        custom(level: .warning, message: message(), sensitive: sensitive, file: file, function: function, line: line, context: context)
         #else
-        custom(level: .warning, message: message, file: file, function: function, line: line, context: context)
+        custom(level: .warning, message: message, sensitive: sensitive, file: file, function: function, line: line, context: context)
         #endif
     }
 
     /// log something which will keep you awake at night (highest priority)
-    open class func error(_ message: @autoclosure () -> Any, _
+    open class func error(_ message: @autoclosure () -> Any, sensitive: String? = nil, _
         file: String = #file, _ function: String = #function, line: Int = #line, context: Any? = nil) {
         #if swift(>=5)
-        custom(level: .error, message: message(), file: file, function: function, line: line, context: context)
+        custom(level: .error, message: message(), sensitive: sensitive, file: file, function: function, line: line, context: context)
         #else
-        custom(level: .error, message: message, file: file, function: function, line: line, context: context)
+        custom(level: .error, message: message, sensitive: sensitive, file: file, function: function, line: line, context: context)
         #endif
     }
 
     /// custom logging to manually adjust values, should just be used by other frameworks
-    public class func custom(level: SwiftyBeaver.Level, message: @autoclosure () -> Any,
+    public class func custom(level: SwiftyBeaver.Level, message: @autoclosure () -> Any, sensitive: String? = nil,
                              file: String = #file, function: String = #function, line: Int = #line, context: Any? = nil) {
         #if swift(>=5)
-        dispatch_send(level: level, message: message(), thread: threadName(),
+        dispatch_send(level: level, message: message(), sensitive: sensitive, thread: threadName(),
                       file: file, function: function, line: line, context: context)
         #else
-        dispatch_send(level: level, message: message, thread: threadName(),
+        dispatch_send(level: level, message: message, sensetive: sensitive, thread: threadName(),
                       file: file, function: function, line: line, context: context)
         #endif
     }
 
     /// internal helper which dispatches send to dedicated queue if minLevel is ok
-    class func dispatch_send(level: SwiftyBeaver.Level, message: @autoclosure () -> Any,
+    class func dispatch_send(level: SwiftyBeaver.Level, message: @autoclosure () -> Any, sensitive: String?,
         thread: String, file: String, function: String, line: Int, context: Any?) {
         var resolvedMessage: String?
         for dest in destinations {
@@ -155,10 +158,11 @@ open class SwiftyBeaver {
                 continue
             }
 
-            resolvedMessage = resolvedMessage == nil && dest.hasMessageFilters() ? "\(message())" : resolvedMessage
+            let includeSensitive = (logsSensitive && sensitive?.isEmpty == false)
+            resolvedMessage = resolvedMessage == nil && dest.hasMessageFilters() ? "\(message())" + (includeSensitive ? "; \(sensitive!)" : "") : resolvedMessage
             if dest.shouldLevelBeLogged(level, path: file, function: function, message: resolvedMessage) {
                 // try to convert msg object to String and put it on queue
-                let msgStr = resolvedMessage == nil ? "\(message())" : resolvedMessage!
+                let msgStr = resolvedMessage == nil ? "\(message())" + (includeSensitive ? "; \(sensitive!)" : "") : resolvedMessage!
                 let f = stripParams(function: function)
 
                 if dest.asynchronously {
@@ -175,29 +179,23 @@ open class SwiftyBeaver {
     }
 
     /**
-     DEPRECATED & NEEDS COMPLETE REWRITE DUE TO SWIFT 3 AND GENERAL INCORRECT LOGIC
      Flush all destinations to make sure all logging messages have been written out
      Returns after all messages flushed or timeout seconds
-
      - returns: true if all messages flushed, false if timeout or error occurred
      */
-    public class func flush(secondTimeout: Int64) -> Bool {
-
-        /*
-        guard let grp = dispatch_group_create() else { return false }
+    public class func flush(secondTimeout: Int) -> Bool {
+        let grp = DispatchGroup()
         for dest in destinations {
             if let queue = dest.queue {
-                dispatch_group_enter(grp)
-                queue.asynchronously(execute: {
+                grp.enter()
+                queue.async {
                     dest.flush()
                     grp.leave()
-                })
+                }
             }
         }
-        let waitUntil = DispatchTime.now(dispatch_time_t(DISPATCH_TIME_NOW), secondTimeout * 1000000000)
-        return dispatch_group_wait(grp, waitUntil) == 0
-         */
-        return true
+        let timeout: DispatchTime = .now() + .seconds(secondTimeout)
+        return grp.wait(timeout: timeout) == .success
     }
 
     /// removes the parameters from a function because it looks weird with a single param
